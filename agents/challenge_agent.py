@@ -17,20 +17,48 @@ client = genai.Client(api_key=api_key)
 MODEL_ID = "gemini-2.5-flash"
 
 RULES_PROMPT = """
-Extract the contest rules from the provided source.
-Return only valid JSON with this schema:
+Extract a machine-learning challenge brief from the provided source.
+
+Return only valid JSON with this exact schema:
 {
   "contest_name": "string or null",
-  "eligibility": ["..."],
+  "task_type": "classification|regression|ranking|generation|forecasting|unknown",
+  "target_description": "string or null",
+  "primary_metric": "string or null",
+  "metric_direction": "maximize|minimize|unknown",
+  "data_description": ["..."],
+  "expected_files": ["..."],
   "submission_requirements": ["..."],
+  "validation_or_leakage_notes": ["..."],
+  "eligibility": ["..."],
   "deadlines": ["..."],
   "judging_criteria": ["..."],
   "prizes": ["..."],
   "prohibited_or_disqualifications": ["..."],
   "other_important_rules": ["..."],
+  "open_questions": ["..."],
   "source_type": "url|pdf"
 }
-If a section is missing, return an empty array for that section.
+
+Field guidance:
+- "task_type" should describe the ML task, not the competition type.
+- "target_description" should explain what the model must predict or generate.
+- "primary_metric" should be the official evaluation metric if available.
+- "metric_direction" should be "maximize" if higher is better, "minimize" if lower is better, otherwise "unknown".
+- "data_description" should summarize available data files, columns, modalities, or dataset structure.
+- "expected_files" should include files like train.csv, test.csv, sample_submission.csv, metadata files, images, EDF files, or other mentioned inputs.
+- "submission_requirements" should include required prediction format, file format, columns, number of submissions, or code requirements.
+- "validation_or_leakage_notes" should include any information relevant to local validation, hidden test sets, grouped data, time splits, external sites, or leakage risks.
+- "open_questions" should include anything important that is missing or unclear from the source.
+
+If a section is missing:
+- use null for missing string fields,
+- use [] for missing list fields,
+- use "unknown" for unknown categorical fields.
+
+Do not add markdown.
+Do not wrap the JSON in code fences.
+Return JSON only.
 """.strip()
 
 
@@ -112,33 +140,3 @@ def _extract_from_pdf(pdf_path: Path) -> str:
     print(f"Total Tokens: {response.usage_metadata.total_token_count}")
 
     return response.text, (response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count)
-
-'''
-def run_challenge_agent(source: str) -> str:
-    """
-    Extract contest rules from either:
-    1) a URL, or
-    2) a local PDF path.
-    """
-    source = source.strip()
-
-    if is_url(source):
-        return _extract_from_url(source)[0]
-
-    pdf_path = Path(source).expanduser().resolve()
-    return _extract_from_pdf(pdf_path)[0]
-
-
-def main():
-    user_input = input("Enter a contest URL or a local PDF path: ").strip()
-    if not user_input:
-        print("No input provided.")
-        return
-
-    try:
-        result = run_challenge_agent(user_input)
-        print("\nExtracted Rules JSON:\n")
-        print(result)
-    except Exception as exc:
-        print(f"Error: {exc}")
-'''

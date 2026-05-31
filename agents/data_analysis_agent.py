@@ -91,8 +91,20 @@ def _pick_files_for_remote_analysis(files: list[Path], max_files: int, max_total
 def _upload_files(files: list[Path]) -> tuple[list[Any], list[dict[str, Any]]]:
     uploaded_parts: list[Any] = []
     manifest: list[dict[str, Any]] = []
+    # Gemini file upload currently rejects some legacy formats (e.g., .xls MIME).
+    uploadable_suffixes = {".csv", ".tsv", ".parquet", ".pq", ".json", ".jsonl", ".ndjson", ".edf", ".xlsx"}
 
     for f in files:
+        if f.suffix.lower() not in uploadable_suffixes:
+            manifest.append(
+                {
+                    "name": f.name,
+                    "suffix": f.suffix.lower(),
+                    "size_bytes": f.stat().st_size,
+                    "upload_status": "skipped: unsupported upload MIME/type",
+                }
+            )
+            continue
         try:
             up = client.files.upload(file=str(f))
             uploaded_parts.append(up)
@@ -165,17 +177,17 @@ def run_data_analysis_agent(
         ),
     )
 
-    print("--- Data Analysis Agent Token Usage ---")
-    if getattr(response, "usage_metadata", None):
-        print(f"Prompt Tokens (Input): {response.usage_metadata.prompt_token_count}")
-        print(f"Candidate Tokens (Output): {response.usage_metadata.candidates_token_count}")
-        print(f"Total Tokens: {response.usage_metadata.total_token_count}")
-        total_tokens = response.usage_metadata.total_token_count
-    else:
-        print("Token metadata unavailable.")
-        total_tokens = 0
+    usage = getattr(response, "usage_metadata", None)
+    prompt_tokens = getattr(usage, "prompt_token_count", 0) if usage else 0
+    output_tokens = getattr(usage, "candidates_token_count", 0) if usage else 0
+    total_tokens = getattr(usage, "total_token_count", prompt_tokens + output_tokens) if usage else (prompt_tokens + output_tokens)
 
-    return response.text, (response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count), {
+    print("--- Data Analysis Agent Token Usage ---")
+    print(f"Prompt Tokens (Input): {prompt_tokens}")
+    print(f"Candidate Tokens (Output): {output_tokens}")
+    print(f"Total Tokens: {total_tokens}")
+
+    return response.text, (prompt_tokens, output_tokens), {
         "files_selected": [str(f) for f in selected],
         "upload_manifest": upload_manifest,
     }
@@ -207,7 +219,7 @@ def get_data_analysis_for_planner(
     """
     if eda_json_path:
         eda_text = load_data_analysis_from_json(eda_json_path)
-        return eda_text, 0, {"source": "local_eda_json", "path": str(eda_json_path)}
+        return eda_text, (0, 0), {"source": "local_eda_json", "path": str(eda_json_path)}
 
     analysis_text, tokens, debug = run_data_analysis_agent(
         dataset_access=dataset_access,

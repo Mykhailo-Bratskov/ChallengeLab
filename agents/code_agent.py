@@ -113,11 +113,15 @@ def execute_code(dataset_access: str, actionable_plan: str) -> str:
         print("\n WARNING: No clean Python block was returned by the agent.")
     
     print("--- Code Agent Token Usage ---")
-    print(f"Prompt Tokens (Input): {interaction.usage_metadata.prompt_token_count}")
-    print(f"Candidate Tokens (Output): {interaction.usage_metadata.candidates_token_count}")
-    print(f"Total Tokens: {interaction.usage_metadata.total_token_count}")
+    usage = getattr(interaction, "usage_metadata", None)
+    prompt_tokens = getattr(usage, "prompt_token_count", 0) if usage else 0
+    output_tokens = getattr(usage, "candidates_token_count", 0) if usage else 0
+    total_tokens = getattr(usage, "total_token_count", prompt_tokens + output_tokens) if usage else (prompt_tokens + output_tokens)
+    print(f"Prompt Tokens (Input): {prompt_tokens}")
+    print(f"Candidate Tokens (Output): {output_tokens}")
+    print(f"Total Tokens: {total_tokens}")
 
-    return interaction, (interaction.usage_metadata.prompt_token_count, interaction.usage_metadata.candidates_token_count)
+    return interaction, (prompt_tokens, output_tokens)
 
 
 def run_generated_code(script_path: Path, dataset_access: str) -> None:

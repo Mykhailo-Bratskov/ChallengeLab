@@ -1,7 +1,7 @@
 import os
-from typing import Union, Literal
+from typing import Literal
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, Discriminator
+from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
@@ -37,20 +37,7 @@ class PlanResponse(BaseModel):
 
 llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", api_key=api_key)
 
-#combine several pydantic responses into a single parser
-def get_model_type(v):
-    if isinstance(v, dict):
-        if "experiments" in v:
-            return "plan"
-        return "experiment"
-    return "plan"
-
-class Response(BaseModel):
-    data: Union[ExperimentSpec, PlanResponse] = Field(
-        discriminator=Discriminator(get_model_type)
-    )
-
-parser = PydanticOutputParser(pydantic_object=Response)
+parser = PydanticOutputParser(pydantic_object=PlanResponse)
 
 # create an executable plan from research findings to code implementation
 def create_plan(challenge_brief: str, dataset_profile: str, research_findings: str,):
@@ -102,5 +89,5 @@ Create the implementation plan.
     print("--- Planner Agent Token Usage ---")
     print(f"Total Tokens: {usage_callback.usage_metadata}")
 
-    return result, usage_callback.usage_metadata
+    return result.model_dump_json(indent=2), usage_callback.usage_metadata
     

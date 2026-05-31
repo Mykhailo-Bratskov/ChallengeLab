@@ -168,9 +168,15 @@ def run_research(metadata: str, challenge_agent_output: str) -> str:
         ],
     )
 
-    print("--- Research Agent Token Usage ---")
-    print(f"Prompt Tokens (Input): {interaction_inline.usage_metadata.prompt_token_count}")
-    print(f"Candidate Tokens (Output): {interaction_inline.usage_metadata.candidates_token_count}")
-    print(f"Total Tokens: {interaction_inline.usage_metadata.total_token_count}")
+    usage = getattr(interaction_inline, "usage_metadata", None)
+    prompt_tokens = getattr(usage, "prompt_token_count", 0) if usage else 0
+    output_tokens = getattr(usage, "candidates_token_count", 0) if usage else 0
+    total_tokens = getattr(usage, "total_token_count", prompt_tokens + output_tokens) if usage else (prompt_tokens + output_tokens)
 
-    return interaction_inline, (interaction_inline.usage_metadata.prompt_token_count, interaction_inline.usage_metadata.candidates_token_count)
+    print("--- Research Agent Token Usage ---")
+    print(f"Prompt Tokens (Input): {prompt_tokens}")
+    print(f"Candidate Tokens (Output): {output_tokens}")
+    print(f"Total Tokens: {total_tokens}")
+
+    # Return plain model text to downstream planning.
+    return interaction_inline.output_text, (prompt_tokens, output_tokens)
