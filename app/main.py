@@ -1,11 +1,14 @@
 from agents import challenge_agent, metadata_extraction, code_agent 
 from agents import research_agent, planner_agent, data_analysis_agent
-from utils import prompt_input, token_counter
+from utils import prompt_input, token_counter, artifacts
 from pathlib import Path
 import time
 import json
 
 def main():
+    run_dir = artifacts.create_run_dir()
+    print(f"\n Artifacts will be saved to: {run_dir}")
+
     challenge_rules = prompt_input.ask_for_contest_rules()
     if isinstance(challenge_rules, dict):
         if challenge_rules.get("type") == "url":
@@ -51,7 +54,11 @@ def main():
     time.sleep(5) 
     
     # running research agent
-    research_output, research_tokens = research_agent.run_research(dataset_metadata_json, challenge_debrief)
+    research_output, research_tokens = research_agent.run_research(
+        dataset_metadata_json,
+        challenge_debrief,
+        artifacts_run_dir=str(run_dir),
+    )
     print("\n Research is ready.")
     
     # estimating costs per agent
@@ -111,11 +118,20 @@ def main():
     print("\n Next, compile actionable plan for research implementation")
     
     # creating plan for code agent 
-    plan_output, plan_tokens= planner_agent.create_plan(challenge_debrief, dataset_profile_for_planner, research_output)
+    plan_output, plan_tokens= planner_agent.create_plan(
+        challenge_debrief,
+        dataset_profile_for_planner,
+        research_output,
+        artifacts_run_dir=str(run_dir),
+    )
     print("\n Actionable plan was created by the agent")
     print("\n For now we don't estimate costs for Planner Agent")
     #compiling code, and extracting final results of ML lab
-    code_output, code_tokens = code_agent.execute_code(str(extract_dir), plan_output)
+    code_output, code_tokens = code_agent.execute_code(
+        str(extract_dir),
+        plan_output,
+        artifacts_run_dir=str(run_dir),
+    )
     code_costs = token_counter.calculate_cost(code_tokens[0], code_tokens[1], 1.50, 9.00)
     print(f"\n Estimated costs from Code Agent: {code_costs}")
     time.sleep(5)

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -7,6 +8,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.callbacks import UsageMetadataCallbackHandler
+from utils import artifacts
 
 # load api key from the .env fike
 load_dotenv()
@@ -40,7 +42,18 @@ llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", api_key=api_key)
 parser = PydanticOutputParser(pydantic_object=PlanResponse)
 
 # create an executable plan from research findings to code implementation
-def create_plan(challenge_brief: str, dataset_profile: str, research_findings: str,):
+def create_plan(challenge_brief: str, dataset_profile: str, research_findings: str, artifacts_run_dir: str | None = None):
+    run_dir = Path(artifacts_run_dir) if artifacts_run_dir else artifacts.create_run_dir()
+    agent_dir = artifacts.get_agent_dir(run_dir, "planner")
+    artifacts.write_json(
+        agent_dir / "input.json",
+        {
+            "challenge_brief": challenge_brief,
+            "dataset_profile": dataset_profile,
+            "research_findings": research_findings,
+        },
+    )
+
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -88,6 +101,26 @@ Create the implementation plan.
     
     print("--- Planner Agent Token Usage ---")
     print(f"Total Tokens: {usage_callback.usage_metadata}")
+
+    artifacts.write_text(agent_dir / "output_raw.txt", result.model_dump_json(indent=2))
+    artifacts.write_json(agent_dir / "output_parsed.json", result.model_dump())
+    artifacts.write_json(
+        agent_dir / "usage.json",
+        {
+            "usage_metadata": str(usage_callback.usage_metadata),
+            "model": "claude-3-5-sonnet-20241022",
+        },
+    )
+    artifacts.write_text(
+        agent_dir / "notes.md",
+        (
+            "# Planner Agent Notes\n\n"
+            "- Model: `claude-3-5-sonnet-20241022`\n"
+            f"- Usage metadata: `{usage_callback.usage_metadata}`\n"
+            "- Output files: `output_raw.txt`, `output_parsed.json`, `usage.json`\n"
+            "- Purpose: transform research findings into an actionable ML implementation plan.\n"
+        ),
+    )
 
     return result.model_dump_json(indent=2), usage_callback.usage_metadata
     

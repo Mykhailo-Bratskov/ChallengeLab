@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, ConfigDict, Field
+from utils import artifacts
 
 load_dotenv()
 
@@ -145,8 +146,18 @@ def _resolve_rules_content(challenge_agent_output: str) -> str:
     return candidate
 
 
-def run_research(metadata: str, challenge_agent_output: str) -> str:
+def run_research(metadata: str, challenge_agent_output: str, artifacts_run_dir: str | None = None) -> str:
     rules_content = _resolve_rules_content(challenge_agent_output)
+    run_dir = Path(artifacts_run_dir) if artifacts_run_dir else artifacts.create_run_dir()
+    agent_dir = artifacts.get_agent_dir(run_dir, "research")
+    artifacts.write_json(
+        agent_dir / "input.json",
+        {
+            "metadata": metadata,
+            "challenge_agent_output": challenge_agent_output,
+            "resolved_rules_content": rules_content,
+        },
+    )
 
     # Pass well-labeled blocks in the text payload
     interaction_inline = client.interactions.create(
@@ -168,15 +179,51 @@ def run_research(metadata: str, challenge_agent_output: str) -> str:
         ],
     )
 
-    usage = getattr(interaction_inline, "usage_metadata", None)
-    prompt_tokens = getattr(usage, "prompt_token_count", 0) if usage else 0
-    output_tokens = getattr(usage, "candidates_token_count", 0) if usage else 0
-    total_tokens = getattr(usage, "total_token_count", prompt_tokens + output_tokens) if usage else (prompt_tokens + output_tokens)
-
+    # The Interactions API utilizes .usage instead of .usage_metadata
+    usage = getattr(interaction_inline, "usage", None)
+    
+    # The field names have also been updated
+    prompt_tokens = getattr(usage, "total_input_tokens", 0) if usage else 0
+    output_tokens = getattr(usage, "total_output_tokens", 0) if usage else 0
+    
+    # You can also access cached tokens if using context caching: 
+    # cached_tokens = getattr(usage, "total_cached_tokens", 0)
+    
+    total_tokens = prompt_tokens + output_tokens
+    
     print("--- Research Agent Token Usage ---")
     print(f"Prompt Tokens (Input): {prompt_tokens}")
     print(f"Candidate Tokens (Output): {output_tokens}")
     print(f"Total Tokens: {total_tokens}")
+
+    artifacts.write_text(agent_dir / "output_raw.txt", interaction_inline.output_text or "")
+    artifacts.write_json(
+        agent_dir / "usage.json",
+        {
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "model": MODEL_ID,
+            "environment": "remote",
+        },
+    )
+    artifacts.write_text(
+        agent_dir / "notes.md",
+        (
+            "# Research Agent Notes\n\n"
+            f"- Model: `{MODEL_ID}`\n"
+            f"- Prompt tokens: `{prompt_tokens}`\n"
+            f"- Output tokens: `{output_tokens}`\n"
+            "- Output files: `output_raw.txt`, `output_parsed.json` (if valid), `usage.json`\n"
+            "- Purpose: produce research findings and structured experiment ideas from contest rules and dataset metadata.\n"
+        ),
+    )
+
+    try:
+        parsed_output = parse_research_output(interaction_inline.output_text or "")
+        artifacts.write_json(agent_dir / "output_parsed.json", parsed_output.model_dump())
+    except Exception as exc:
+        artifacts.write_json(agent_dir / "parse_error.json", {"error": str(exc)})
 
     # Return plain model text to downstream planning.
     return interaction_inline.output_text, (prompt_tokens, output_tokens)

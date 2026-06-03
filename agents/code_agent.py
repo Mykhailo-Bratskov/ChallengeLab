@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Tuple, Optional, List
 from dotenv import load_dotenv
 from google import genai
+from utils import artifacts
 
 load_dotenv()
 # get the api key for the model
@@ -57,7 +58,17 @@ def folder_to_remote_sources(local_folder: Path) -> List[dict]:
                 pass # Skip files that aren't plain text
     return sources
 
-def execute_code(dataset_access: str, actionable_plan: str) -> str:
+def execute_code(dataset_access: str, actionable_plan: str, artifacts_run_dir: str | None = None) -> str:
+    run_dir = Path(artifacts_run_dir) if artifacts_run_dir else artifacts.create_run_dir()
+    agent_dir = artifacts.get_agent_dir(run_dir, "code")
+    artifacts.write_json(
+        agent_dir / "input.json",
+        {
+            "dataset_access": dataset_access,
+            "actionable_plan": actionable_plan,
+        },
+    )
+
     have_code, sample_folder_path = get_sample_code()
     
     # 1. Base input payload
@@ -101,25 +112,56 @@ def execute_code(dataset_access: str, actionable_plan: str) -> str:
 
     # 4. Extract the code and save it back to your local machine
     final_response = interaction.output_text
+    artifacts.write_text(agent_dir / "output_raw.txt", final_response or "")
     python_blocks = re.findall(r'```python\s*(.*?)\s*```', final_response, re.DOTALL)
     
     if python_blocks:
         final_code = python_blocks[-1]
         local_file_path = LOCAL_OUTPUT_DIR / "final_pipeline.py"
         local_file_path.write_text(final_code, encoding="utf-8")
+        artifacts.write_text(agent_dir / "final_pipeline.py", final_code)
         print(f"\n SUCCESS: Final code successfully extracted and saved locally to {local_file_path}")
         run_generated_code(local_file_path, dataset_access)
     else:
         print("\n WARNING: No clean Python block was returned by the agent.")
     
     print("--- Code Agent Token Usage ---")
-    usage = getattr(interaction, "usage_metadata", None)
-    prompt_tokens = getattr(usage, "prompt_token_count", 0) if usage else 0
-    output_tokens = getattr(usage, "candidates_token_count", 0) if usage else 0
-    total_tokens = getattr(usage, "total_token_count", prompt_tokens + output_tokens) if usage else (prompt_tokens + output_tokens)
+    # The Interactions API utilizes .usage instead of .usage_metadata
+    usage = getattr(interaction, "usage", None)
+    
+    # The field names have also been updated
+    prompt_tokens = getattr(usage, "total_input_tokens", 0) if usage else 0
+    output_tokens = getattr(usage, "total_output_tokens", 0) if usage else 0
+    
+    # You can also access cached tokens if using context caching: 
+    # cached_tokens = getattr(usage, "total_cached_tokens", 0)
+    
+    total_tokens = prompt_tokens + output_tokens
     print(f"Prompt Tokens (Input): {prompt_tokens}")
     print(f"Candidate Tokens (Output): {output_tokens}")
     print(f"Total Tokens: {total_tokens}")
+    artifacts.write_json(
+        agent_dir / "usage.json",
+        {
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "model": MODEL_ID,
+            "environment": "remote",
+        },
+    )
+    artifacts.write_text(
+        agent_dir / "notes.md",
+        (
+            "# Code Agent Notes\n\n"
+            f"- Model: `{MODEL_ID}`\n"
+            f"- Dataset path passed: `{dataset_access}`\n"
+            f"- Prompt tokens: `{prompt_tokens}`\n"
+            f"- Output tokens: `{output_tokens}`\n"
+            "- Output files: `output_raw.txt`, `final_pipeline.py` (if extracted), `usage.json`\n"
+            "- Purpose: generate executable pipeline code from the actionable plan and run it locally.\n"
+        ),
+    )
 
     return interaction, (prompt_tokens, output_tokens)
 
