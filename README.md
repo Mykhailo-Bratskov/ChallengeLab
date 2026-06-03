@@ -77,3 +77,4 @@ You will be prompted for:
 - Agent outputs depend on model quality and prompt constraints.
 - Some file formats may require fallback behavior if parsing fails.
 - Planner currently depends on Anthropic model configuration in code.
+- Important: The current data_analysis_agent.py implementation is experimental and may not produce reliable or complete analysis results. It is therefore recommended to perform your own EDA/data analysis and provide it as a precomputed JSON input when running the pipeline.
